@@ -1,0 +1,35 @@
+version: '3.9'
+
+services:
+  flask-app:
+    build: .
+    ports:
+      - "5003:5003"
+    depends_on:
+      - postgres_db
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/myDatabase
+      - DATABASE_URL=postgresql://username:password@postgres_db:5432/myDatabase
+
+  postgres_db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: myDatabase
+      POSTGRES_USER: username
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mongo:
+    image: mongo:4.2
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  postgres-data:
+  mongo-data:
