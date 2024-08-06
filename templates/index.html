@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corporatica</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        h1, h2, h3 {
+            font-weight: 700;
+            color: #343a40;
+        }
+        .form-container {
+            margin-bottom: 40px;
+        }
+        .form-container h2, .actions h2 {
+            margin-bottom: 20px;
+            color: #007bff;
+        }
+        .form-group, .form-container {
+            margin-bottom: 20px;
+        }
+        .form-group label, .form-container h2 {
+            display: block;
+            margin-bottom: 10px;
+        }
+        .form-group input, .form-group select, .form-group textarea, .form-container textarea {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            box-sizing: border-box;
+            border: 1px solid #ced4da;
+            border-radius: 5px;
+        }
+        .form-group button, .form-container button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .form-group button:hover, .form-container button:hover {
+            background-color: #0056b3;
+        }
+        .result {
+            margin-top: 20px;
+        }
+        .result pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+        }
+        .visualize img {
+            max-width: 100%;
+            height: auto;
+            margin-top: 20px;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+        }
+        .upload-group {
+            margin-bottom: 40px;
+        }
+        .upload-group h2, .actions h2 {
+            color: #007bff;
+        }
+        .upload-group .input-group {
+            margin-bottom: 20px;
+        }
+        .upload-group .input-group .form-control {
+            height: 45px;
+        }
+        .actions button {
+            margin: 10px 0;
+        }
+        .actions img {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center">Textual data</h1>
+
+        <!-- Text Summarization -->
+        <div class="form-container">
+            <h2>Text Summarization</h2>
+            <form action="/summarize" method="post">
+                <textarea name="text" rows="4" placeholder="Enter text to summarize...">{{ input_text_summary or '' }}</textarea><br>
+                <button type="submit">Summarize</button>
+            </form>
+            {% if summary %}
+            <h3>Summary:</h3>
+            <p>{{ summary }}</p>
+            {% endif %}
+        </div>
+        
+        <!-- Keyword Extraction -->
+        <div class="form-container">
+            <h2>Keyword Extraction</h2>
+            <form action="/keywords" method="post">
+                <textarea name="text" rows="4" placeholder="Enter text to extract keywords...">{{ input_text_keywords or '' }}</textarea><br>
+                <button type="submit">Extract Keywords</button>
+            </form>
+            {% if keywords %}
+            <h3>Keywords:</h3>
+            <ul>
+                {% for keyword in keywords %}
+                <li>{{ keyword }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+        
+        <!-- Sentiment Analysis -->
+        <div class="form-container">
+            <h2>Sentiment Analysis</h2>
+            <form action="/sentiment" method="post">
+                <textarea name="text" rows="4" placeholder="Enter text to analyze sentiment...">{{ input_text_sentiment or '' }}</textarea><br>
+                <button type="submit">Analyze Sentiment</button>
+            </form>
+            {% if sentiment %}
+            <h3>Sentiment:</h3>
+            <p>{{ sentiment }}</p>
+            {% endif %}
+        </div>
+        
+        <!-- Text Search -->
+        <div class="form-container">
+            <h2>Text Search</h2>
+            <form action="/search" method="post">
+                <textarea name="text" rows="4" placeholder="Enter text to search...">{{ input_text_search or '' }}</textarea><br>
+                <input type="text" name="search_term" placeholder="Enter search term..." value="{{ search_term or '' }}"><br>
+                <button type="submit">Search</button>
+            </form>
+            {% if result is defined %}
+            <h3>Result:</h3>
+            <p>{{ result }}</p>
+            {% endif %}
+        </div>
+        
+        <!-- Custom Query -->
+        <div class="form-container">
+            <h2>Custom Query</h2>
+            <form action="/custom_query" method="post">
+                <textarea name="text" rows="4" placeholder="Enter text for custom query...">{{ input_text_query or '' }}</textarea><br>
+                <input type="text" name="query" placeholder="Enter query..." value="{{ query or '' }}"><br>
+                <button type="submit">Execute Query</button>
+            </form>
+            {% if occurrences is defined %}
+            <h3>Occurrences:</h3>
+            <p>{{ occurrences }}</p>
+            {% endif %}
+        </div>
+
+        <h1 class="text-center">Tabular data</h1>
+        <!-- File Upload Form -->
+        <div class="form-group upload-group">
+            <h2>Upload File</h2>
+            <form id="upload-form" enctype="multipart/form-data">
+                <label for="files">Choose files:</label>
+                <input type="file" id="files" name="files" multiple>
+                <button type="button" onclick="uploadFiles()">Upload</button>
+            </form>
+            <div class="result" id="upload-result"></div>
+        </div>
+
+        <!-- Data Processing Form -->
+        <div class="form-group upload-group">
+            <h2>Process Data</h2>
+            <input type="text" id="process-filename" placeholder="Enter filename">
+            <button onclick="processData()">Process</button>
+            <div class="result" id="process-result"></div>
+        </div>
+
+        <!-- Data Query Form -->
+        <div class="form-group upload-group">
+            <h2>Query Data</h2>
+            <input type="text" id="query-filename" placeholder="Enter filename">
+            <textarea id="query" rows="4" placeholder="Enter your query"></textarea>
+            <button onclick="queryData()">Query</button>
+            <div class="result" id="query-result"></div>
+        </div>
+
+        <!-- Data Management Form -->
+        <div class="form-group upload-group">
+            <h2>Manage Data</h2>
+            <input type="text" id="manage-filename" placeholder="Enter filename">
+            <textarea id="manage-data" rows="4" placeholder="Enter JSON data"></textarea>
+            <button onclick="createData()">Create</button>
+            <button onclick="readData()">Read</button>
+            <button onclick="updateData()">Update</button>
+            <button onclick="deleteData()">Delete</button>
+            <div class="result" id="manage-result"></div>
+        </div>
+
+        <!-- Data Visualization Form -->
+        <div class="form-group visualize">
+            <h2>Visualize Data</h2>
+            <input type="text" id="visualize-filename" placeholder="Enter filename">
+            <select id="plot-type">
+                <option value="histogram">Histogram</option>
+                <option value="bar">Bar</option>
+                <option value="box">Box</option>
+            </select>
+            <input type="text" id="column-name" placeholder="Enter column name">
+            <button onclick="visualizeData()">Visualize</button>
+            <div class="result" id="visualize-result"></div>
+        </div>
+    </div>
+    <div class="container">
+        <h1 class="text-center">RGB images</h1>
+        <div class="upload-group">
+            <!-- Upload image input-->
+            <h2>Upload Image</h2>
+            <form action="/upload" enctype="multipart/form-data" method="post" id="uploadForm">
+                <div class="input-group mb-3 px-2 py-2 rounded-pill bg-white shadow-sm">
+                    <input id="upload" type="file" name="images" multiple class="form-control border-0">
+                    <label id="upload-label" for="upload" class="font-weight-light text-muted">Choose files</label>
+                    <div class="input-group-append">
+                        <label for="upload" class="btn btn-light m-0 rounded-pill px-4">
+                            <i class="fa fa-cloud-upload mr-2 text-muted"></i>
+                            <small class="text-uppercase font-weight-bold text-muted">Choose files</small>
+                        </label>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Upload</button>
+            </form>
+            <div id="uploadedImages" class="mt-4"></div>
+        </div>
+
+        <div class="actions">
+            <h2>Actions</h2>
+            <input type="text" id="filename" placeholder="Enter filename" class="form-control my-2">
+
+            <button onclick="getHistogram()" class="btn btn-primary">Get Histogram</button>
+            <img id="histogram" src="#" alt="Histogram" class="img-fluid rounded shadow-sm mx-auto d-block my-2" style="display: none;">
+
+            <button onclick="getSegmentation()" class="btn btn-primary">Get Segmentation Mask</button>
+            <img id="segmentation" src="#" alt="Segmentation Mask" class="img-fluid rounded shadow-sm mx-auto d-block my-2" style="display: none;">
+
+            <h3 class="mt-4">Resize Image</h3>
+            <input type="number" id="resizeWidth" placeholder="Width" class="form-control my-2">
+            <input type="number" id="resizeHeight" placeholder="Height" class="form-control my-2">
+            <button onclick="resizeImage()" class="btn btn-primary">Resize</button>
+            <img id="resized" src="#" alt="Resized Image" class="img-fluid rounded shadow-sm mx-auto d-block my-2" style="display: none;">
+
+            <h3 class="mt-4">Crop Image</h3>
+            <input type="number" id="cropLeft" placeholder="Left" class="form-control my-2">
+            <input type="number" id="cropTop" placeholder="Top" class="form-control my-2">
+            <input type="number" id="cropRight" placeholder="Right" class="form-control my-2">
+            <input type="number" id="cropBottom" placeholder="Bottom" class="form-control my-2">
+            <button onclick="cropImage()" class="btn btn-primary">Crop</button>
+            <img id="cropped" src="#" alt="Cropped Image" class="img-fluid rounded shadow-sm mx-auto d-block my-2" style="display: none;">
+
+            <h3 class="mt-4">Convert Image</h3>
+            <select id="convertFormat" class="form-control my-2">
+                <option value="jpeg">JPEG</option>
+                <option value="png">PNG</option>
+                <option value="bmp">BMP</option>
+                <option value="gif">GIF</option>
+                <option value="tiff">TIFF</option>
+            </select>
+            <button onclick="convertImage()" class="btn btn-primary">Convert</button>
+            <img id="converted" src="#" alt="Converted Image" class="img-fluid rounded shadow-sm mx-auto d-block my-2" style="display: none;">
+        </div>
+    </div>
+
+    <script>
+        async function uploadFiles() {
+            const formData = new FormData(document.getElementById('upload-form'));
+            const response = await fetch('/upload', { method: 'POST', body: formData });
+            const result = await response.json();
+            document.getElementById('upload-result').innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+            if (response.ok) {
+                const filename = result.filenames[0]; // Assuming one file uploaded
+                document.getElementById('process-filename').value = filename;
+                document.getElementById('query-filename').value = filename;
+                document.getElementById('manage-filename').value = filename;
+                document.getElementById('visualize-filename').value = filename;
+                // document.getElementById('filename').value = filename; // For image processing actions
+            } else {
+                console.error('Upload failed:', result.message);
+            }
+        }
+
+        async function processData() {
+            const filename = document.getElementById('process-filename').value;
+            const response = await fetch(`/process/${filename}`);
+            const result = await response.json();
+            document.getElementById('process-result').innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+        }
+
+        async function queryData() {
+            const filename = document.getElementById('query-filename').value;
+            const query = document.getElementById('query').value;
+            const response = await fetch(`/query/${filename}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ query })
+            });
+            const result = await response.json();
+            document.getElementById('query-result').innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+        }
+
+        async function createData() {
+            const filename = document.getElementById('manage-filename').value;
+            const data = document.getElementById('manage-data').value;
+            const response = await fetch(`/data/${filename}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: data
+            });
+            const result = await response.json();
+            document.getElementById('manage-result').innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+        }
+
+        async function readData() {
+            const filename = document.getElementById('manage-filename').value;
+            const response = await fetch(`/data/${filename}`);
+            const result = await response.json();
+            document.getElementById('manage-result').innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+        }
+
+        async function updateData() {
+            const filename = document.getElementById('manage-filename').value;
+            const data = document.getElementById('manage-data').value;
+            const response = await fetch(`/data/${filename}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: data
+            });
+            const result = await response.json();
+            document.getElementById('manage-result').innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+        }
+
+        async function deleteData() {
+            const filename = document.getElementById('manage-filename').value;
+            const indices = document.getElementById('manage-data').value;
+            const response = await fetch(`/data/${filename}`, {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ indices: JSON.parse(indices) })
+            });
+            const result = await response.json();
+            document.getElementById('manage-result').innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+        }
+
+        async function visualizeData() {
+            const filename = document.getElementById('visualize-filename').value;
+            const plotType = document.getElementById('plot-type').value;
+            const column = document.getElementById('column-name').value;
+            const response = await fetch(`/visualize/${filename}?plot_type=${plotType}&column=${column}`);
+            const result = await response.json();
+            document.getElementById('visualize-result').innerHTML = `<img src="${result.plot_url}" alt="Plot">`;
+        }
+        
+        async function getHistogram() {
+            const filename = document.getElementById('filename').value;
+            const response = await fetch(`/histogram/${filename}`);
+            const result = await response.json();
+            document.getElementById('histogram').src = result.histogram_url;
+            document.getElementById('histogram').style.display = 'block';
+        }
+
+        async function getSegmentation() {
+            const filename = document.getElementById('filename').value;
+            const response = await fetch(`/segmentation/${filename}`);
+            const result = await response.json();
+            document.getElementById('segmentation').src = result.segmentation_url;
+            document.getElementById('segmentation').style.display = 'block';
+        }
+
+        async function resizeImage() {
+            const filename = document.getElementById('filename').value;
+            const width = document.getElementById('resizeWidth').value;
+            const height = document.getElementById('resizeHeight').value;
+            const response = await fetch(`/resize/${filename}?width=${width}&height=${height}`);
+            const result = await response.json();
+            document.getElementById('resized').src = result.resized_url;
+            document.getElementById('resized').style.display = 'block';
+        }
+
+        async function cropImage() {
+            const filename = document.getElementById('filename').value;
+            const left = document.getElementById('cropLeft').value;
+            const top = document.getElementById('cropTop').value;
+            const right = document.getElementById('cropRight').value;
+            const bottom = document.getElementById('cropBottom').value;
+            const response = await fetch(`/crop/${filename}?left=${left}&top=${top}&right=${right}&bottom=${bottom}`);
+            const result = await response.json();
+            document.getElementById('cropped').src = result.cropped_url;
+            document.getElementById('cropped').style.display = 'block';
+        }
+
+        async function convertImage() {
+            const filename = document.getElementById('filename').value;
+            const format = document.getElementById('convertFormat').value;
+            const response = await fetch(`/convert/${filename}?format=${format}`);
+            const result = await response.json();
+            document.getElementById('converted').src = result.converted_url;
+            document.getElementById('converted').style.display = 'block';
+        }
+        
+        
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.1/dist/jquery.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
+    <script>
+        document.getElementById('submit-btn').addEventListener('click', async function() {
+            var service = document.getElementById('service').value;
+            var textInput = document.getElementById('text-input').value;
+            var additionalField = document.getElementById('additional-field').value;
+
+            var data = new FormData();
+            data.append('text', textInput);
+            if (service === 'search' || service === 'custom_query') {
+                data.append(service === 'search' ? 'search_term' : 'query', additionalField);
+            }
+
+            var response = await fetch('/' + service, {
+                method: 'POST',
+                body: data
+            });
+
+            var result = await response.json();
+            var resultContainer = document.getElementById('result-container');
+            var tsnePlot = document.getElementById('tsne-plot');
+            resultContainer.innerHTML = '';
+            tsnePlot.style.display = 'none';
+            if (service === 'summarize') {
+                resultContainer.innerHTML = `<strong>Summary:</strong> ${result.summary}`;
+            } else if (service === 'keywords') {
+                resultContainer.innerHTML = `<strong>Keywords:</strong> ${result.keywords.join(', ')}`;
+            } else if (service === 'sentiment') {
+                resultContainer.innerHTML = `<strong>Sentiment:</strong> ${result.sentiment}`;
+            } else if (service === 'tsne') {
+                var ctx = tsnePlot.getContext('2d');
+                tsnePlot.style.display = 'block';
+                var tsneData = {
+                    labels: result.words,
+                    datasets: [{
+                        label: 'T-SNE',
+                        data: result.tsne.map((point, index) => ({ x: point[0], y: point[1], label: result.words[index] })),
+                        backgroundColor: 'rgba(75, 192, 192, 0.6)'
+                    }]
+                };
+                new Chart(ctx, {
+                    type: 'scatter',
+                    data: tsneData,
+                    options: {
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.raw.label;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'linear',
+                                position: 'bottom'
+                            }
+                        }
+                    }
+                });
+            } else if (service === 'search') {
+                resultContainer.innerHTML = "<strong>Search Result:</strong> " + result.result;
+            } else if (service === 'categorize') {
+                resultContainer.innerHTML = "<strong>Category:</strong> ${result.category}";
+            } else if (service === 'custom_query') {
+                resultContainer.innerHTML = "<strong>Occurrences:</strong> " + result.occurrences;
+            }
+            resultContainer.style.display = 'block';
+        });
+    </script>
+</body>
+</html>
