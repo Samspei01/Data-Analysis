@@ -174,7 +174,6 @@ These endpoints allow users to interact with the application, upload and process
 Example for `app.py`:
 
 ```python
-"""
 app.py
 
 This is the main application script for the Advanced Data Processing and Analysis Application.
@@ -183,7 +182,7 @@ It initializes the Flask application, sets up database connections, and defines 
 Usage:
     - Run the script: `python3.11 app.py`
     - Access the application at http://localhost:5003
-"""
+```
 
-Contact
+## Contact
 For any questions or support, please contact me at [MY-EMAL](abdosaaed749@gmail.com).
