@@ -1,0 +1,25 @@
+/* Set the background color of the body */
+body {
+    background-color: #f8f9fa;
+}
+
+/* Style for the container */
+.container {
+    margin-top: 50px;
+}
+
+/* Style for the header */
+h1 {
+    margin-bottom: 30px;
+}
+
+/* Style for the image area */
+.image-area img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Style for the primary button */
+.btn-primary {
+    margin-top: 10px;
+}
