@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from flask import Flask, request, jsonify, send_file, render_template, url_for
+from flask import Flask, request, jsonify, send_file, render_template, url_for, make_response
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
 from flasgger import Swagger
@@ -18,15 +18,20 @@ from PIL import Image
 import cv2
 from matplotlib.figure import Figure
 from flask_sqlalchemy import SQLAlchemy
+from flask_restful import Api, Resource
+from flask_pymongo import PyMongo
+
 # Initialize the Flask application
 app = Flask(__name__, static_folder='static', template_folder='templates')
+api = Api(app)
+
+# Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///default.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-from flask_pymongo import PyMongo # type: ignore
-
+app.config["MONGO_URI"] = os.getenv('MONGO_URI', "mongodb://localhost:27017/myDatabase")
 db = SQLAlchemy(app)
-app.config["MONGO_URI"] = os.getenv('MONGO_URI', "mongodb://mongo:27017/myDatabase")
 mongo = PyMongo(app)
+
 # Define a model
 class ExampleModel(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -39,7 +44,6 @@ with app.app_context():
 CORS(app)
 Swagger(app)
 
-# Configuration for text and tabular data
 ALLOWED_EXTENSIONS = {'csv', 'xls', 'xlsx'}
 UPLOAD_FOLDER = os.path.abspath(os.path.join(os.path.dirname(__file__), 'uploads'))
 MAX_CONTENT_LENGTH = 500 * 1000 * 1000  # 500 MB limit
@@ -49,7 +53,7 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 app.config['CORS_HEADERS'] = 'Content-Type'
 app.config['RESULT_FOLDER'] = 'results'
 
-# Ensure the upload directory exists
+
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 if not os.path.exists(app.config['RESULT_FOLDER']):
@@ -131,234 +135,316 @@ def convert_nan_to_none(obj):
 def home():
     return render_template('index.html')
 
-@app.route('/upload', methods=['POST'])
-def file_upload():
-    if 'files' not in request.files:
-        return jsonify({'message': 'No files part in the request'}), 400
-    files = request.files.getlist('files')
-    if not files:
-        return jsonify({'message': 'No files uploaded'}), 400
 
-    filenames = []
-    for f in files:
-        if not allowed_file(f.filename):
-            return jsonify({'message': 'File type not allowed'}), 400
-        original_filename = secure_filename(f.filename)
-        new_filename = create_timestamped_filename(original_filename)
-        save_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
-        f.save(save_path)
-        df = pd.read_csv(save_path) if new_filename.endswith('.csv') else pd.read_excel(save_path)
-        
-        # Store both original and cleaned dataframes
-        data_store[new_filename] = {
-            "original": df,
-            "cleaned": preprocess_data(df.copy())
-        }
-        filenames.append(new_filename)
-    
-    return jsonify({"filenames": filenames, "status": "Files successfully uploaded"}), 200
+#########################<upload_file>######################
+class UploadFile(Resource):
+    def post(self):
+        if 'files' not in request.files:
+            return {'message': 'No files part in the request'}, 400
+        files = request.files.getlist('files')
+        if not files:
+            return {'message': 'No files uploaded'}, 400
 
-@app.route('/query/<filename>', methods=['POST'])
-def query_data(filename):
-    if filename not in data_store:
-        logging.debug(f"Filename {filename} not found in data_store")
-        return jsonify({'error': 'File not found'}), 404
-
-    params = request.json
-    if not params or 'query' not in params:
-        logging.debug("No query provided in request")
-        return jsonify({'error': 'No query provided'}), 400
-
-    try:
-        df = data_store[filename]["original"]
-        query = params['query']
-        logging.debug(f"Executing query: {query}")
-
-        result_df = psql.sqldf(query, locals())
-        logging.debug(f"Query result: {result_df}")
-
-        result_json = result_df.to_dict(orient='records')
-        return jsonify(result_json), 200
-    except Exception as e:
-        logging.exception("Error executing query")
-        return jsonify({'error': 'Error executing query: ' + str(e)}), 500
-
-@app.route('/process/<filename>', methods=['GET'])
-def process_data(filename):
-    if filename not in data_store:
-        return jsonify({'error': 'File not found'}), 404
-
-    try:
-        df = data_store[filename]["cleaned"]
-        stats_type = request.args.get('stats', 'all')
-        stats = calculate_statistics(df)
-
-        stats = convert_nan_to_none(stats)
-
-        return jsonify({'filename': filename, 'statistics': stats}), 200
-    except Exception as e:
-        return jsonify({'error': 'Error processing file: ' + str(e)}), 500
-
-@app.route('/data/<filename>', methods=['GET', 'POST', 'PUT', 'DELETE'])
-def manage_data(filename):
-    if filename not in data_store:
-        return jsonify({'error': 'File not found'}), 404
-
-    df = data_store[filename]["original"]
-
-    if request.method == 'GET':
-        return jsonify(convert_nan_to_none(df.to_dict(orient='records'))), 200
-
-    elif request.method == 'POST':
-        new_data = request.json
-        try:
-            new_df = pd.DataFrame([new_data])
-            df = pd.concat([df, new_df], ignore_index=True)
-            data_store[filename]["original"] = df
-            return jsonify(convert_nan_to_none(df.to_dict(orient='records'))), 200
-        except Exception as e:
-            return jsonify({'error': 'Error adding data: ' + str(e)}), 500
-
-    elif request.method == 'PUT':
-        update_data = request.json
-        try:
-            for index, row in update_data.items():
-                df.loc[int(index)] = row
-            data_store[filename]["original"] = df
-            return jsonify(convert_nan_to_none(df.to_dict(orient='records'))), 200
-        except Exception as e:
-            return jsonify({'error': 'Error updating data: ' + str(e)}), 500
-
-    elif request.method == 'DELETE':
-        delete_indices = request.json.get('indices')
-        try:
-            df.drop(index=delete_indices, inplace=True)
-            data_store[filename]["original"] = df
-            return jsonify(convert_nan_to_none(df.to_dict(orient='records'))), 200
-        except Exception as e:
-            return jsonify({'error': 'Error deleting data: ' + str(e)}), 500
-
-@app.route('/visualize/<filename>', methods=['GET'])
-def visualize_data(filename):
-    if filename not in data_store:
-        return jsonify({'error': 'File not found'}), 404
-
-    try:
-        df = data_store[filename]["original"]
-        plot_type = request.args.get('plot_type', 'histogram')
-        column = request.args.get('column')
-
-        if column not in df.columns:
-            return jsonify({'error': 'Column not found'}), 404
-
-        plt.figure(figsize=(10, 6))
-
-        if plot_type == 'histogram':
-            df[column].hist()
-            plt.title(f'Histogram of {column}')
-        elif plot_type == 'bar':
-            df[column].value_counts().plot(kind='bar')
-            plt.title(f'Bar Chart of {column}')
-        elif plot_type == 'box':
-            df[column].plot(kind='box')
-            plt.title(f'Box Plot of {column}')
-        else:
-            return jsonify({'error': 'Invalid plot type'}), 400
-
-        plt.tight_layout()
-
-        img = io.BytesIO()
-        plt.savefig(img, format='png')
-        img.seek(0)
-        plot_url = base64.b64encode(img.getvalue()).decode()
-
-        return jsonify({'plot_url': f'data:image/png;base64,{plot_url}'}), 200
-    except Exception as e:
-        logging.exception("Error visualizing data")
-        return jsonify({'error': 'Error visualizing data: ' + str(e)}), 500
-
-@app.route('/summarize', methods=['POST'])
-def summarize():
-    text = request.form['text']
-    summary = summarizer(text, max_length=50, min_length=25, do_sample=False)
-    return render_template('index.html', summary=summary[0]['summary_text'], input_text_summary=text)
-
-@app.route('/keywords', methods=['POST'])
-def extract_keywords():
-    text = request.form['text']
-    kw_extractor = yake.KeywordExtractor()
-    keywords = kw_extractor.extract_keywords(text)
-    keywords_list = [kw[0] for kw in keywords]
-    return render_template('index.html', keywords=keywords_list, input_text_keywords=text)
-
-@app.route('/search', methods=['POST'])
-def search_text():
-    text = request.form.get('text')
-    search_term = request.form.get('search_term')
-    if text and search_term:
-        if search_term in text:
-            result = "Found"
-        else:
-            result = "Not Found"
-        return jsonify({'result': result, 'input_text_search': text, 'search_term': search_term})
-    return jsonify({'error': 'Both text and search_term are required'}), 400
-
-@app.route('/custom_query', methods=['POST'])
-def custom_query():
-    text = request.form.get('text')
-    query = request.form.get('query')
-    if text and query:
-        # For simplicity, let's just count the number of occurrences of the query in the text
-        occurrences = text.count(query)
-        return jsonify({'occurrences': occurrences, 'input_text_query': text, 'query': query})
-    return jsonify({'error': 'Both text and query are required'}), 400
-
-@app.route('/sentiment', methods=['POST'])
-def sentiment_analysis():
-    text = request.form['text']
-    blob = TextBlob(text)
-    sentiment_score = blob.sentiment.polarity
-    if sentiment_score > 0.1:
-        sentiment = "Positive"
-    elif sentiment_score < -0.1:
-        sentiment = "Negative"
-    else:
-        sentiment = "Neutral"
-    return render_template('index.html', sentiment=f"{sentiment} ({sentiment_score})", input_text_sentiment=text)
-
-# Image processing routes
-@app.route('/upload_image', methods=['POST'])
-def upload_image():
-    if 'images' not in request.files:
-        return jsonify({"error": "No images provided"}), 400
-
-    files = request.files.getlist('images')
-    file_info = []
-
-    for file in files:
-        if file.filename == '':
-            return jsonify({"error": "No selected file"}), 400
-        if file:
-            filename = secure_filename(file.filename)
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
-            with Image.open(file_path) as img:
-                width, height = img.size
-            file_info.append({
-                "filename": filename,
-                "width": width,
-                "height": height,
-                "path": url_for('uploaded_file', filename=filename),
-                "mode": img.mode,
-                "format": img.format
+        filenames = []
+        for f in files:
+            if not allowed_file(f.filename):
+                return {'message': 'File type not allowed'}, 400
+            original_filename = secure_filename(f.filename)
+            new_filename = create_timestamped_filename(original_filename)
+            save_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
+            f.save(save_path)
+            df = pd.read_csv(save_path) if new_filename.endswith('.csv') else pd.read_excel(save_path)
+            
+            # Store file metadata and content in MongoDB
+            mongo.db.files.insert_one({
+                "original_filename": original_filename,
+                "new_filename": new_filename,
+                "save_path": save_path,
+                "upload_time": datetime.now(),
+                "data": df.to_dict(orient='records')
             })
+            
+            filenames.append(new_filename)
+        
+        return {"filenames": filenames, "status": "Files successfully uploaded"}, 200
 
-    return jsonify({"message": "Images successfully uploaded", "files": file_info}), 200
+api.add_resource(UploadFile, '/upload')
 
+######################<process_file>######################
+class Process(Resource):
+    def get(self, filename):
+        file_data = mongo.db.files.find_one({"new_filename": filename})
+        if not file_data:
+            return {'error': 'File not found'}, 404
+
+        try:
+            df = pd.DataFrame(file_data['data'])
+            stats = calculate_statistics(df)
+            stats = convert_nan_to_none(stats)
+
+            return {'filename': filename, 'statistics': stats}, 200
+        except Exception as e:
+            return {'error': 'Error processing file: ' + str(e)}, 500
+
+api.add_resource(Process, '/process/<filename>')
+
+######################<manage_data>######################
+class ManageData(Resource):
+    def get(self, filename):
+        file_data = mongo.db.files.find_one({"new_filename": filename})
+        if not file_data:
+            return {'error': 'File not found'}, 404
+
+        return convert_nan_to_none(file_data['data']), 200
+
+    def post(self, filename):
+        file_data = mongo.db.files.find_one({"new_filename": filename})
+        if not file_data:
+            return {'error': 'File not found'}, 404
+
+        new_data = request.json
+        df = pd.DataFrame(file_data['data'])
+        new_df = pd.DataFrame([new_data])
+        updated_df = pd.concat([df, new_df], ignore_index=True)
+
+        mongo.db.files.update_one(
+            {"new_filename": filename},
+            {"$set": {"data": updated_df.to_dict(orient='records')}}
+        )
+
+        return convert_nan_to_none(updated_df.to_dict(orient='records')), 200
+
+    def put(self, filename):
+        file_data = mongo.db.files.find_one({"new_filename": filename})
+        if not file_data:
+            return {'error': 'File not found'}, 404
+
+        update_data = request.json
+        df = pd.DataFrame(file_data['data'])
+        for index, row in update_data.items():
+            df.loc[int(index)] = row
+
+        mongo.db.files.update_one(
+            {"new_filename": filename},
+            {"$set": {"data": df.to_dict(orient='records')}}
+        )
+
+        return convert_nan_to_none(df.to_dict(orient='records')), 200
+
+    def delete(self, filename):
+        file_data = mongo.db.files.find_one({"new_filename": filename})
+        if not file_data:
+            return {'error': 'File not found'}, 404
+
+        df = pd.DataFrame(file_data['data'])
+        delete_indices = request.json.get('indices')
+        df.drop(index=delete_indices, inplace=True)
+
+        mongo.db.files.update_one(
+            {"new_filename": filename},
+            {"$set": {"data": df.to_dict(orient='records')}}
+        )
+
+        return convert_nan_to_none(df.to_dict(orient='records')), 200
+
+api.add_resource(ManageData, '/data/<filename>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+
+######################<visualize>######################
+class Visualize(Resource):
+    def get(self, filename):
+        file_data = mongo.db.files.find_one({"new_filename": filename})
+        if not file_data:
+            return {'error': 'File not found'}, 404
+
+        try:
+            df = pd.DataFrame(file_data['data'])
+            plot_type = request.args.get('plot_type', 'histogram')
+            column = request.args.get('column')
+
+            if column not in df.columns:
+                return {'error': 'Column not found'}, 404
+
+            plt.figure(figsize=(10, 6))
+
+            if plot_type == 'histogram':
+                df[column].hist()
+                plt.title(f'Histogram of {column}')
+            elif plot_type == 'bar':
+                df[column].value_counts().plot(kind='bar')
+                plt.title(f'Bar Chart of {column}')
+            elif plot_type == 'box':
+                df[column].plot(kind='box')
+                plt.title(f'Box Plot of {column}')
+            else:
+                return {'error': 'Invalid plot type'}, 400
+
+            plt.tight_layout()
+
+            img = io.BytesIO()
+            plt.savefig(img, format='png')
+            img.seek(0)
+            plot_url = base64.b64encode(img.getvalue()).decode()
+
+            return {'plot_url': f'data:image/png;base64,{plot_url}'}, 200
+        except Exception as e:
+            logging.exception("Error visualizing data")
+            return {'error': 'Error visualizing data: ' + str(e)}, 500
+
+api.add_resource(Visualize, '/visualize/<filename>')
+
+######################<query data>######################
+class QueryData(Resource):
+    def post(self, filename):
+        file_data = mongo.db.files.find_one({"new_filename": filename})
+        if not file_data:
+            return {'error': 'File not found'}, 404
+
+        params = request.json
+        if not params or 'query' not in params:
+            return {'error': 'No query provided'}, 400
+
+        try:
+            df = pd.DataFrame(file_data['data'])
+            query = params['query']
+            result_df = psql.sqldf(query, locals())
+
+            return result_df.to_dict(orient='records'), 200
+        except Exception as e:
+            logging.exception("Error executing query")
+            return {'error': 'Error executing query: ' + str(e)}, 500
+
+api.add_resource(QueryData, '/query/<filename>')
+########################<summarize>######################
+class Summarize(Resource):
+    def post(self):
+        text = request.form['text']
+        summary = summarizer(text, max_length=50, min_length=25, do_sample=False)
+        rendered_html = render_template('index.html', input_text_summary=text, summary=summary[0]['summary_text'])
+        response = make_response(rendered_html)
+        response.headers['Content-Type'] = 'text/html'
+        return response
+api.add_resource(Summarize, '/summarize')
+########################<keywords>######################
+class keywords(Resource):
+    def post(self):
+        text = request.form['text']
+        kw_extractor = yake.KeywordExtractor()
+        keywords = kw_extractor.extract_keywords(text)
+        keywords_list = [kw[0] for kw in keywords]
+        rendered_html = render_template('index.html', keywords=keywords_list, input_text_keywords=text)
+        response = make_response(rendered_html)
+        response.headers['Content-Type'] = 'text/html'
+        return response
+
+api.add_resource(keywords, '/keywords')
+
+########################<sentiment>######################
+class SentimentAnalysis(Resource):
+    def post(self):
+        text = request.form['text']
+        blob = TextBlob(text)
+        sentiment_score = blob.sentiment.polarity
+        
+        # Determine sentiment and corresponding emoji
+        if sentiment_score > 0.1:
+            sentiment = "Positive = Happy 😊"
+        elif sentiment_score < -0.1:
+            sentiment = "Negative = Sad 😢"
+        else:
+            sentiment = "Neutral = Neutral  😐"
+
+        # Render the template with sentiment, score, and emoji
+        rendered_html = render_template(
+            'index.html', 
+            sentiment=f"{sentiment} ({sentiment_score:.2f})", 
+            input_text_sentiment=text
+        )
+        response = make_response(rendered_html)
+        response.headers['Content-Type'] = 'text/html'
+        return response
+    
+api.add_resource(SentimentAnalysis, '/sentiment')
+
+########################<search>######################
+class SearchText(Resource):
+    def post(self):
+        text = request.form.get('text')
+        search_term = request.form.get('search_term')
+        if text and search_term:
+            if search_term in text:
+                result = "Found"
+            else:
+                result = "Not Found"
+            html=render_template('index.html', 
+                                   result=result, 
+                                   input_text_search=text, 
+                                   search_term=search_term)
+            
+            response = make_response(html)
+            response.headers['Content-Type'] = 'text/html'
+            return response
+        return {'error': 'Both text and search_term are required'}, 400
+api.add_resource(SearchText, '/search')
+
+########################<custom_query>######################
+
+class CustomQuery(Resource):
+    def post(self):
+        text = request.form.get('text')
+        query = request.form.get('query')
+        if text and query:
+            # Count the number of occurrences of the query in the text
+            occurrences = text.count(query)
+            # Render the template and create a response object
+            rendered_html = render_template(
+                'index.html', 
+                occurrences=occurrences, 
+                input_text_query=text, 
+                query=query
+            )
+            response = make_response(rendered_html)
+            response.headers['Content-Type'] = 'text/html'
+            return response
+        # If text or query is missing, return error response
+        return {'error': 'Both text and query are required'}, 400
+api.add_resource(CustomQuery, '/custom_query')
+
+########################<upload_image>######################
+class UploadImage(Resource):
+    def post(self):
+        if 'images' not in request.files:
+            return {"error": "No images provided"}, 400
+
+        files = request.files.getlist('images')
+        file_info = []
+
+        for file in files:
+            if file.filename == '':
+                return {"error": "No selected file"}, 400
+            if file:
+                filename = secure_filename(file.filename)
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(file_path)
+                with Image.open(file_path) as img:
+                    width, height = img.size
+                file_info.append({
+                    "filename": filename,
+                    "width": width,
+                    "height": height,
+                    "path": url_for('uploaded_file', filename=filename, _external=True),
+                    "mode": img.mode,
+                    "format": img.format
+                })
+
+        return {"message": "Images successfully uploaded", "files": file_info}, 200
+    
+api.add_resource(UploadImage, '/upload_image')
+########################<image_info>######################
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_file(os.path.join(app.config['UPLOAD_FOLDER'], filename))
 
+########################<histogram>######################
 def generate_histogram(image_path):
     image = cv2.imread(image_path)
     color = ('b', 'g', 'r')
@@ -373,13 +459,19 @@ def generate_histogram(image_path):
     figure.savefig(output_path)
 
     return output_path
+################################################
+class GenerateHistogram(Resource):
+    def get(self, filename):
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if not os.path.exists(image_path):
+            return {"error": "File not found"}, 404
 
-@app.route('/histogram/<filename>', methods=['GET'])
-def get_histogram(filename):
-    image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    histogram_path = generate_histogram(image_path)
-    return send_file(histogram_path, mimetype='image/png')
+        histogram_path = generate_histogram(image_path)
+        return send_file(histogram_path, mimetype='image/png')
+    
+api.add_resource(GenerateHistogram, '/histogram/<filename>')
 
+########################<segmentation>######################
 def generate_segmentation_mask(image_path):
     image = cv2.imread(image_path)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -389,81 +481,109 @@ def generate_segmentation_mask(image_path):
     cv2.imwrite(output_path, mask)
     
     return output_path
+################################################
+class GenerateSegmentationMask(Resource):
+    def get(self, filename):
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if not os.path.exists(image_path):
+            return {"error": "File not found"}, 404
 
-@app.route('/segmentation/<filename>', methods=['GET'])
-def get_segmentation_mask(filename):
-    image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    mask_path = generate_segmentation_mask(image_path)
-    return send_file(mask_path, mimetype='image/png')
-
-@app.route('/resize/<filename>', methods=['POST'])
-def resize_image(filename):
-    width = request.json.get('width')
-    height = request.json.get('height')
-    image_path = os.path.join(UPLOAD_FOLDER, filename)
-    if not os.path.exists(image_path):
-        return jsonify({"error": "File not found"}), 404
-
-    try:
-        image = Image.open(image_path)
-        resized_image = image.resize((width, height))
-        img_io = io.BytesIO()
-        resized_image.save(img_io, 'PNG')
-        img_io.seek(0)
-        return send_file(img_io, mimetype='image/png')
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-@app.route('/crop/<filename>', methods=['POST'])
-def crop_image(filename):
-    image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    image = Image.open(image_path)
-    left = request.json.get('left')
-    top = request.json.get('top')
-    right = request.json.get('right')
-    bottom = request.json.get('bottom')
-
-    if left < 0 or top < 0 or right > image.width or bottom > image.height or left >= right or top >= bottom:
-        logging.error("Invalid crop coordinates")
-        return jsonify({"error": "Invalid crop coordinates"}), 400
-
-    cropped_image = image.crop((left, top, right, bottom))
+        mask_path = generate_segmentation_mask(image_path)
+        return send_file(mask_path, mimetype='image/png')
     
-    output = io.BytesIO()
-    cropped_image.save(output, format='PNG')
-    output.seek(0)
-    
-    return send_file(output, mimetype='image/png')
+api.add_resource(GenerateSegmentationMask, '/segmentation/<filename>')
 
-@app.route('/convert/<filename>', methods=['POST'])
-def convert_image(filename):
-    logging.debug(f"Received request to convert {filename}")
-    image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    logging.debug(f"Image path: {image_path}")
-    
-    image = Image.open(image_path)
-    format = request.json.get('format').lower()
-    logging.debug(f"Requested format: {format}")
+########################<resize_image>######################
+class resize_image(Resource):
+    def post(self,filename):
+        width = request.json.get('width')
+        height = request.json.get('height')
+        image_path = os.path.join(UPLOAD_FOLDER, filename)
+        if not os.path.exists(image_path):
+            return {"error": "File not found"}, 404
+        
+        try:
+            image = Image.open(image_path)
+            resized_image = image.resize((width, height))
+            img_io = io.BytesIO()
+            resized_image.save(img_io,'PNG')
+            img_io.seek(0)
+            return send_file(img_io, mimetype='image/png')
+        except Exception as e:
+            return {"error": str(e)}, 500
+        
+api.add_resource(resize_image, '/resize/<filename>')
 
-    valid_formats = ["jpeg", "png", "bmp", "gif", "tiff"]
-    if format not in valid_formats:
-        logging.error(f"Unsupported format: {format}")
-        return jsonify({"error": f"Unsupported format: {format}"}), 400
+########################<crop_image>######################
+class CropImage(Resource):
+    def post(self, filename):
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if not os.path.exists(image_path):
+            return jsonify({"error": "File not found"}), 404
 
-    try:
-        output_path = os.path.join(app.config['RESULT_FOLDER'], os.path.splitext(os.path.basename(image_path))[0] + f'.{format}')
-        image.save(output_path, format=format.upper())
-        return send_file(output_path, mimetype=f'image/{format}')
-    except KeyError as e:
-        logging.error(f"Error saving image in format {format}: {e}")
-        return jsonify({"error": f"Error saving image in format: {format}"}), 500
+        try:
+            image = Image.open(image_path)
+            left = request.json.get('left')
+            top = request.json.get('top')
+            right = request.json.get('right')
+            bottom = request.json.get('bottom')
 
-@app.errorhandler(413)
-def too_large(e):
-    return jsonify({'message': 'The file is too large'}), 413
+            logging.info(f"Received coordinates: left={left}, top={top}, right={right}, bottom={bottom}")
 
-@app.errorhandler(500)
-def internal_error(e):
-    return jsonify({'message': 'Internal server error'}), 500
+            # Validate cropping coordinates
+            if (left is None or top is None or right is None or bottom is None or
+                left < 0 or top < 0 or right > image.width or bottom > image.height or
+                left >= right or top >= bottom):
+                logging.error("Invalid crop coordinates")
+                return {"error": "Invalid crop coordinates"}, 400
 
+            cropped_image = image.crop((left, top, right, bottom))
+            
+            output = io.BytesIO()
+            cropped_image.save(output, format='PNG')
+            output.seek(0)
+            
+            return send_file(output, mimetype='image/png')
+
+        except Exception as e:
+            logging.exception("Error during cropping")
+            return {"error": str(e)}, 500
+api.add_resource(CropImage, '/crop/<filename>')
+########################<convert_image>######################
+class ConvertImage(Resource):
+    def post(self, filename):
+        logging.debug(f"Received request to convert {filename}")
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        logging.debug(f"Image path: {image_path}")
+
+        if not os.path.exists(image_path):
+            logging.error(f"File not found: {image_path}")
+            return jsonify({"error": "File not found"}), 404
+        
+        try:
+            image = Image.open(image_path)
+        except Exception as e:
+            logging.error(f"Error opening image {filename}: {e}")
+            return jsonify({"error": f"Error opening image: {filename}"}), 500
+
+        format = request.json.get('format').lower()
+        logging.debug(f"Requested format: {format}")
+
+        valid_formats = ["jpeg", "png", "bmp", "gif", "tiff"]
+        if format not in valid_formats:
+            logging.error(f"Unsupported format: {format}")
+            return jsonify({"error": f"Unsupported format: {format}"}), 400
+
+        try:
+            output_path = os.path.join(app.config['RESULT_FOLDER'], os.path.splitext(os.path.basename(image_path))[0] + f'.{format}')
+            image.save(output_path, format=format.upper())
+            return send_file(output_path, mimetype=f'image/{format}')
+        except Exception as e:
+            logging.error(f"Error saving image in format {format}: {e}")
+            return jsonify({"error": f"Error saving image in format: {format}"}), 500
+        
+api.add_resource(ConvertImage, '/convert/<filename>')
+
+##########################<main>########################
 if __name__ == "__main__":
-    app.run(port=5003, debug=True)
+    app.run(port=5000, debug=True)
