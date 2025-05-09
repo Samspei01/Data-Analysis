@@ -27,8 +27,8 @@ This project is an advanced software application focused on containerization and
 
 1. **Clone the repository**:
     ```sh
-    git clone https://github.com/Samspei01/Data Analysis-Backend-Task)
-    cd Data Analysis-Backend-Task
+    git clone https://github.com/Samspei01/Data Analysis)
+    cd Data Analysis
     ```
 
 2. **Build and start the Docker containers**:
